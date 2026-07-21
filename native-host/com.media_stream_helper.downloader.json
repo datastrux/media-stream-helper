@@ -1,0 +1,9 @@
+﻿{
+    "name":  "com.media_stream_helper.downloader",
+    "description":  "Media Stream Helper - Native Downloader",
+    "path":  "C:\\Users\\colle\\code\\media-stream-helper\\native-host\\media_downloader_host.bat",
+    "type":  "stdio",
+    "allowed_origins":  [
+                            "chrome-extension://ddpoankeepbbfkfejfibpgocbghknbap/"
+                        ]
+}

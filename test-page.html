@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Media Stream Helper - Test Page</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 3px solid #667eea;
+      padding-bottom: 10px;
+    }
+    .section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h2 {
+      color: #667eea;
+      margin-top: 0;
+    }
+    video, audio {
+      width: 100%;
+      max-width: 640px;
+      margin: 10px 0;
+      border-radius: 4px;
+    }
+    .info {
+      background: #e3f2fd;
+      padding: 15px;
+      border-radius: 4px;
+      border-left: 4px solid #2196f3;
+      margin: 10px 0;
+      font-size: 14px;
+    }
+    .warning {
+      background: #fff3cd;
+      padding: 15px;
+      border-radius: 4px;
+      border-left: 4px solid #ffc107;
+      margin: 10px 0;
+      font-size: 14px;
+    }
+    code {
+      background: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+    }
+    .url {
+      word-break: break-all;
+      font-size: 12px;
+      color: #666;
+      margin: 5px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>📡 Media Stream Helper - Test Page</h1>
+  
+  <div class="info">
+    <strong>🧪 How to test:</strong>
+    <ol>
+      <li>Make sure the Media Stream Helper extension is installed and enabled</li>
+      <li>Click play on any of the media elements below</li>
+      <li>Click the extension icon in your Chrome toolbar</li>
+      <li>You should see the detected media URLs in the popup</li>
+    </ol>
+  </div>
+
+  <div class="section">
+    <h2>🎬 Test Video (MP4)</h2>
+    <div class="info">
+      This tests direct MP4 detection. You should see a "Download File" button in the extension.
+    </div>
+    <video controls>
+      <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+    <div class="url">
+      <strong>URL:</strong> <code>https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4</code>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🎵 Test Audio (MP3)</h2>
+    <div class="info">
+      This tests MP3 detection. You should see both download and FFmpeg options.
+    </div>
+    <audio controls>
+      <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
+      Your browser does not support the audio tag.
+    </audio>
+    <div class="url">
+      <strong>URL:</strong> <code>https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3</code>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>📺 Test HLS Stream (M3U8)</h2>
+    <div class="warning">
+      <strong>⚠️ Note:</strong> Testing HLS requires a video player that supports HLS (like hls.js or native Safari support). 
+      The extension will detect the .m3u8 URL even if playback doesn't work in your browser.
+    </div>
+    <div class="info">
+      For HLS testing, you can visit these sites and play their videos:
+      <ul>
+        <li><a href="https://developer.apple.com/streaming/examples/" target="_blank">Apple HLS Examples</a></li>
+        <li><a href="https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8" target="_blank">Tears of Steel HLS</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🎥 Test WebM Video</h2>
+    <div class="info">
+      This tests WebM detection.
+    </div>
+    <video controls>
+      <source src="https://www.w3schools.com/html/mov_bbb.webm" type="video/webm">
+      Your browser does not support the video tag.
+    </video>
+    <div class="url">
+      <strong>URL:</strong> <code>https://www.w3schools.com/html/mov_bbb.webm</code>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>✅ Expected Results</h2>
+    <ul>
+      <li><strong>MP4 Video:</strong> Should show "MP4" badge, download button, and FFmpeg options</li>
+      <li><strong>MP3 Audio:</strong> Should show "MP3" badge, download button, and FFmpeg convert option</li>
+      <li><strong>WebM Video:</strong> Should show "WEBM" badge, download button, and FFmpeg options</li>
+      <li><strong>M3U8 (HLS):</strong> Should show "HLS" badge, FFmpeg commands only (no download button), and info message about playlists</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>🔍 Troubleshooting</h2>
+    <div class="warning">
+      <strong>If media is not detected:</strong>
+      <ol>
+        <li>Refresh this page after installing the extension</li>
+        <li>Make sure you click "Play" on the media element</li>
+        <li>Wait a few seconds after playback starts</li>
+        <li>Check the browser console (F12) for any errors</li>
+        <li>Verify the extension is enabled at <code>chrome://extensions/</code></li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>📋 Testing Checklist</h2>
+    <p>After testing, verify these features work:</p>
+    <ul>
+      <li>✓ Media URLs appear in the extension popup</li>
+      <li>✓ Correct media type badges are shown (MP4, MP3, HLS, etc.)</li>
+      <li>✓ "Copy URL" button copies the full URL</li>
+      <li>✓ "Copy FFmpeg" buttons generate valid commands</li>
+      <li>✓ "Download File" button works for direct media (not HLS)</li>
+      <li>✓ "Clear All" button removes detected media</li>
+      <li>✓ Different tabs show different detected media</li>
+      <li>✓ Timestamps are displayed correctly</li>
+    </ul>
+  </div>
+
+  <footer style="text-align: center; margin-top: 40px; color: #999; font-size: 12px;">
+    <p>Media Stream Helper Test Page | For testing purposes only</p>
+  </footer>
+
+  <script>
+    // Log when media starts playing for debugging
+    document.querySelectorAll('video, audio').forEach(media => {
+      media.addEventListener('play', () => {
+        console.log('Media playing:', media.currentSrc);
+      });
+      
+      media.addEventListener('loadeddata', () => {
+        console.log('Media loaded:', media.currentSrc);
+      });
+    });
+  </script>
+</body>
+</html>

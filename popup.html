@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Media Stream Helper</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <h1>📡 Media Stream Helper</h1>
+      <p class="subtitle">Detect and download media streams</p>
+    </header>
+
+    <!-- Current tab info -->
+    <div id="tabInfo" class="tab-info">
+      <div class="loading">Loading...</div>
+    </div>
+
+    <!-- Warning section (hidden by default) -->
+    <div id="warningSection" class="warning-section hidden">
+      <div class="warning-icon">⚠️</div>
+      <div class="warning-text">
+        <strong>Protected Media Detected</strong>
+        <p>Some detected media may be protected or encrypted. This extension does not bypass DRM, paywalls, or access controls.</p>
+      </div>
+    </div>
+
+    <!-- Button Legend -->
+    <div id="buttonLegend" class="button-legend">
+      <div class="legend-title">Quick Reference:</div>
+      <div class="legend-items">
+        <div class="legend-item">
+          <span class="legend-icon" style="color: #4caf50;">🚀</span>
+          <span class="legend-text"><strong>Green buttons</strong> - Automatic download (runs in background)</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-icon" style="color: #667eea;">📋</span>
+          <span class="legend-text"><strong>Blue buttons</strong> - Copy command (paste in terminal)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Media list -->
+    <div id="mediaList" class="media-list">
+      <!-- Media items will be inserted here -->
+    </div>
+
+    <!-- Empty state -->
+    <div id="emptyState" class="empty-state">
+      <div class="empty-icon">🎵</div>
+      <p>No media detected yet</p>
+      <p class="hint">Play audio or video on the current page to detect streams</p>
+    </div>
+
+    <!-- Actions -->
+    <div id="actions" class="actions hidden">
+      <button id="clearBtn" class="btn btn-secondary">Clear All</button>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+      <p class="disclaimer">
+        ⚖️ Only download media you have permission to use.
+      </p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

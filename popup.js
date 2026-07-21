@@ -1,0 +1,1056 @@
+/**
+ * Media Stream Helper - Popup UI Script
+ * 
+ * This script handles the popup UI interactions, displays detected media,
+ * and generates FFmpeg commands for downloading/converting media streams.
+ */
+
+// DOM elements
+let tabInfoEl;
+let warningSection;
+let mediaListEl;
+let emptyStateEl;
+let actionsEl;
+let clearBtn;
+let showSegmentsToggle;
+
+// Current tab ID
+let currentTabId = null;
+
+// Settings
+let showIndividualSegments = false;
+
+/**
+ * Initialize popup
+ */
+async function init() {
+  // Get DOM elements
+  tabInfoEl = document.getElementById('tabInfo');
+  warningSection = document.getElementById('warningSection');
+  mediaListEl = document.getElementById('mediaList');
+  emptyStateEl = document.getElementById('emptyState');
+  actionsEl = document.getElementById('actions');
+  clearBtn = document.getElementById('clearBtn');
+
+  // Set up event listeners
+  clearBtn.addEventListener('click', handleClearAll);
+  
+  // Check if toggle exists (will add to HTML)
+  showSegmentsToggle = document.getElementById('showSegmentsToggle');
+  if (showSegmentsToggle) {
+    showSegmentsToggle.addEventListener('change', (e) => {
+      showIndividualSegments = e.target.checked;
+      loadDetectedMedia();
+    });
+  }
+
+  // Get current tab
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tabs.length > 0) {
+    currentTabId = tabs[0].id;
+    
+    // Display tab info
+    displayTabInfo(tabs[0]);
+    
+    // Display active downloads
+    await displayActiveDownloads();
+    
+    // Load and display detected media
+    await loadDetectedMedia();
+  } else {
+    tabInfoEl.innerHTML = '<div class="loading">No active tab found</div>';
+  }
+}
+
+/**
+ * Display current tab information
+ */
+function displayTabInfo(tab) {
+  const url = tab.url || 'Unknown';
+  const title = tab.title || 'Unknown';
+  
+  tabInfoEl.innerHTML = `
+    <div><strong>Current Page:</strong></div>
+    <div class="tab-url" title="${escapeHtml(url)}">${escapeHtml(truncate(url, 60))}</div>
+  `;
+}
+
+/**
+ * Display active downloads
+ */
+async function displayActiveDownloads() {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'getActiveDownloads' });
+    
+    if (!response.success) {
+      return;
+    }
+    
+    const downloads = response.downloads;
+    const downloadIds = Object.keys(downloads);
+    
+    // Filter active/recent downloads
+    const activeDownloads = downloadIds
+      .map(id => ({ id, ...downloads[id] }))
+      .filter(d => d.status === 'starting' || d.status === 'downloading' || 
+                   (d.status === 'complete' && Date.now() - d.timestamp < 60000)); // Show completed for 1 minute
+    
+    if (activeDownloads.length === 0) {
+      return;
+    }
+    
+    // Create download status section
+    const statusSection = document.createElement('div');
+    statusSection.id = 'downloadStatus';
+    statusSection.style.cssText = `
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      padding: 12px;
+      margin: 10px 0;
+      border-radius: 4px;
+    `;
+    
+    const title = document.createElement('div');
+    title.style.cssText = 'font-weight: bold; font-size: 13px; margin-bottom: 8px; color: #1976d2;';
+    title.textContent = `📥 Active Downloads (${activeDownloads.length})`;
+    statusSection.appendChild(title);
+    
+    activeDownloads.forEach(download => {
+      const item = document.createElement('div');
+      item.style.cssText = 'font-size: 11px; padding: 6px; background: white; border-radius: 3px; margin-bottom: 4px;';
+      
+      const statusIcon = {
+        'starting': '🔌',
+        'downloading': '⏳',
+        'complete': '✅',
+        'failed': '❌'
+      }[download.status] || '❓';
+      
+      const statusText = download.status.toUpperCase();
+      
+      item.innerHTML = `
+        <div style="font-weight: 600;">${statusIcon} ${statusText}</div>
+        <div style="color: #666; margin-top: 2px;">${download.mediaType} - ${new Date(download.timestamp).toLocaleTimeString()}</div>
+      `;
+      
+      statusSection.appendChild(item);
+    });
+    
+    // Insert at the top of the popup
+    const container = document.querySelector('.container');
+    container.insertBefore(statusSection, container.firstChild.nextSibling);
+    
+  } catch (error) {
+    console.error('Error displaying downloads:', error);
+  }
+}
+
+/**
+ * Load detected media from storage
+ */
+async function loadDetectedMedia() {
+  try {
+    const result = await chrome.storage.session.get('detectedMedia');
+    const detectedMedia = result.detectedMedia || {};
+    
+    const mediaItems = detectedMedia[currentTabId.toString()] || [];
+    
+    displayMediaItems(mediaItems);
+  } catch (error) {
+    console.error('Error loading media:', error);
+    showError('Failed to load detected media');
+  }
+}
+
+/**
+ * Display media items in the UI
+ */
+function displayMediaItems(mediaItems) {
+  // Clear previous content
+  mediaListEl.innerHTML = '';
+  // Filter and group items
+  const playlists = [];
+  const directMedia = [];
+  const segments = [];
+  
+  mediaItems.forEach(item => {
+    if (item.isSegment && !showIndividualSegments) {
+      segments.push(item);
+    } else if (item.isHLS) {
+      playlists.push(item);
+    } else {
+      directMedia.push(item);
+    }
+  });
+  
+  // Group playlists by base path (same video, different qualities)
+  const groupedPlaylists = groupPlaylistsByVideo(playlists);
+  
+  const visibleItems = [...Object.values(groupedPlaylists), ...directMedia];
+  
+  if (visibleItems.length === 0 && !showIndividualSegments) {
+    // Show message about hidden segments
+    mediaListEl.innerHTML = `
+      <div style="padding: 20px; text-align: center; color: #666;">
+        <p>Only individual video segments detected.</p>
+        <p>Look for the <strong>.m3u8 playlist</strong> by playing the video.</p>
+        <p style="font-size: 12px; margin-top: 10px;">
+          <label style="cursor: pointer;">
+            <input type="checkbox" id="showSegmentsInline" style="margin-right: 5px;">
+            Show individual segments (advanced)
+          </label>
+        </p>
+      </div>
+    `;
+    document.getElementById('showSegmentsInline')?.addEventListener('change', (e) => {
+      showIndividualSegments = e.target.checked;
+      loadDetectedMedia();
+    });
+    actionsEl.classList.add('hidden');
+    warningSection.classList.add('hidden');
+    return;
+  }
+  
+  // Hide empty state
+  emptyStateEl.classList.add('hidden');
+  actionsEl.classList.remove('hidden');
+  
+  // Check if any items are protected
+  const hasProtected = mediaItems.some(item => item.isPossiblyProtected);
+  if (hasProtected) {
+    warningSection.classList.remove('hidden');
+  } else {
+    warningSection.classList.add('hidden');
+  }
+  
+  // Create grouped playlist elements
+  Object.entries(groupedPlaylists).forEach(([groupKey, group]) => {
+    const groupEl = createGroupedPlaylistElement(group);
+    mediaListEl.appendChild(groupEl);
+  });
+  
+  // Create direct media elements
+  directMedia.forEach((item, index) => {
+    const itemEl = createMediaItemElement(item, mediaItems.indexOf(item));
+    mediaListEl.appendChild(itemEl);
+  });
+  
+  // Show segments if enabled
+  if (showIndividualSegments && segments.length > 0) {
+    const segmentsHeader = document.createElement('div');
+    segmentsHeader.style.cssText = 'padding: 10px; background: #f5f5f5; margin: 10px 0; font-weight: bold; font-size: 12px;';
+    segmentsHeader.textContent = `Individual Segments (${segments.length})`;
+    mediaListEl.appendChild(segmentsHeader);
+    
+    segments.forEach((item, index) => {
+      const itemEl = createMediaItemElement(item, mediaItems.indexOf(item));
+      mediaListEl.appendChild(itemEl);
+    });
+  }
+}
+
+/**
+ * Group playlists by base video URL
+ */
+function groupPlaylistsByVideo(playlists) {
+  const groups = {};
+  
+  playlists.forEach(item => {
+    const url = item.url;
+    
+    // Try to extract video ID or base path from URL
+    // Pattern 1: /video-id/quality/file.m3u8 (e.g., /abc-123/1080p/video.m3u8)
+    // Pattern 2: /video-id/playlist.m3u8 (master playlist)
+    // Pattern 3: /video-id/file.m3u8 (simple structure)
+    
+    let groupKey = null;
+    
+    // Try to find a UUID-like video ID or unique path segment
+    const videoIdMatch = url.match(/\/([a-f0-9-]{30,})\/(?:[\d]+p\/|playlist\.m3u8|[^\/]+\.m3u8)/i);
+    if (videoIdMatch) {
+      // Found video ID - use it as group key
+      groupKey = videoIdMatch[1];
+    } else {
+      // Try to find base path before quality folder
+      const basePathMatch = url.match(/^(.*?)\/([\d]+p|playlist)\/.*\.m3u8$/);
+      if (basePathMatch) {
+        groupKey = basePathMatch[1];
+      }
+    }
+    
+    if (groupKey) {
+      // Add to existing group or create new one
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          basePath: groupKey,
+          items: [],
+          pageUrl: item.pageUrl,
+          timestamp: item.timestamp,
+          headers: item.headers,
+          isPossiblyProtected: item.isPossiblyProtected
+        };
+      }
+      groups[groupKey].items.push(item);
+    } else {
+      // Standalone playlist - create its own group
+      groups[url] = {
+        basePath: url,
+        items: [item],
+        pageUrl: item.pageUrl,
+        timestamp: item.timestamp,
+        headers: item.headers,
+        isPossiblyProtected: item.isPossiblyProtected
+      };
+    }
+  });
+  
+  return groups;
+}
+
+/**
+ * Create a grouped playlist element with quality options
+ */
+function createGroupedPlaylistElement(group) {
+  const div = document.createElement('div');
+  div.className = 'media-item media-group';
+  
+  // Format timestamp from first item
+  const timestamp = new Date(group.timestamp).toLocaleTimeString();
+  
+  // Separate master playlist from quality-specific playlists
+  const masterPlaylist = group.items.find(item => 
+    item.url.includes('playlist.m3u8') || 
+    item.url.includes('master.m3u8') ||
+    !item.url.match(/\d+p/)
+  );
+  
+  const qualityPlaylists = group.items.filter(item => item.url.match(/\d+p/));
+  
+  // Sort quality playlists by quality (descending)
+  qualityPlaylists.sort((a, b) => {
+    const getQuality = (url) => {
+      const match = url.match(/(\d+)p/);
+      return match ? parseInt(match[1]) : 0;
+    };
+    return getQuality(b.url) - getQuality(a.url);
+  });
+  
+  // Create badges
+  let badges = `<span class="media-badge hls">HLS Video</span>`;
+  if (group.isPossiblyProtected) {
+    badges += `<span class="media-badge protected">🔒 Protected?</span>`;
+  }
+  
+  // Build quality buttons
+  const qualityButtons = [];
+  
+  // Add master playlist button first (if exists)
+  if (masterPlaylist) {
+    qualityButtons.push(`<button class="btn btn-quality" data-url="${escapeHtml(masterPlaylist.url)}" data-quality="Master">Master (Auto)</button>`);
+  }
+  
+  // Add quality-specific buttons
+  qualityPlaylists.forEach(item => {
+    const qualityMatch = item.url.match(/(\d+)p/);
+    if (qualityMatch) {
+      const quality = qualityMatch[1] + 'p';
+      qualityButtons.push(`<button class="btn btn-quality" data-url="${escapeHtml(item.url)}" data-quality="${quality}">${quality}</button>`);
+    }
+  });
+  
+  const qualityButtonsHtml = qualityButtons.join('');
+  
+  // Use best quality or master as primary
+  const primaryItem = qualityPlaylists[0] || masterPlaylist;
+  const primaryIndex = group.items.indexOf(primaryItem);
+  
+  div.innerHTML = `
+    <div class="media-item-header">
+      ${badges}
+    </div>
+    <div class="media-url" title="${escapeHtml(group.basePath)}">${escapeHtml(shortenUrl(group.basePath))}</div>
+    <div class="media-timestamp">Detected at ${timestamp}</div>
+    
+    <div class="quality-selector" style="margin: 10px 0; padding: 10px; background: #f9f9f9; border-radius: 4px;">
+      <div style="font-size: 12px; font-weight: bold; margin-bottom: 8px; color: #666;">Select Quality:</div>
+      <div class="quality-buttons" style="display: flex; gap: 8px; flex-wrap: wrap;">
+        ${qualityButtonsHtml}
+      </div>
+    </div>
+    
+    <div class="media-actions" data-selected-url="${escapeHtml(primaryItem.url)}">
+      <button class="btn btn-success btn-small" data-action="download-merge">
+        🚀 Download & Merge
+      </button>
+      <button class="btn btn-primary btn-small" data-action="copy-ffmpeg-mp4">
+        📋 FFmpeg (MP4)
+      </button>
+      <button class="btn btn-primary btn-small" data-action="copy-ffmpeg-mp4-subs">
+        📋 MP4+Subs
+      </button>
+      <button class="btn btn-primary btn-small" data-action="copy-ffmpeg-extract-subs">
+        📋 Extract Subs
+      </button>
+      <button class="btn btn-primary btn-small" data-action="copy-ffmpeg-mp3">
+        📋 FFmpeg (MP3)
+      </button>
+    </div>
+    
+    <div class="media-info">
+      💡 HLS playlist - Select quality above, then click Download & Merge or copy FFmpeg command
+    </div>
+  `;
+  
+  // Add quality button listeners
+  div.querySelectorAll('.btn-quality').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      // Remove active class from all quality buttons in this group
+      div.querySelectorAll('.btn-quality').forEach(b => b.classList.remove('active'));
+      // Add active class to clicked button
+      btn.classList.add('active');
+      
+      // Update selected URL for actions
+      const actionsEl = div.querySelector('.media-actions');
+      actionsEl.dataset.selectedUrl = btn.dataset.url;
+    });
+  });
+  
+  // Set first quality as active by default
+  div.querySelector('.btn-quality')?.classList.add('active');
+  
+  // Add event listeners to action buttons
+  div.querySelectorAll('.media-actions button').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const actionsEl = e.currentTarget.closest('.media-actions');
+      const selectedUrl = actionsEl.dataset.selectedUrl;
+      const selectedItem = group.items.find(item => item.url === selectedUrl) || primaryItem;
+      
+      await handleGroupAction(e.currentTarget, selectedItem, group);
+    });
+  });
+  
+  return div;
+}
+
+/**
+ * Handle action for grouped playlist
+ */
+async function handleGroupAction(button, item, group) {
+  const action = button.dataset.action;
+  
+  switch (action) {
+    case 'copy-url':
+      await copyToClipboard(item.url, button);
+      break;
+    case 'copy-ffmpeg-mp3':
+      await copyFFmpegCommand(item, 'mp3', button);
+      break;
+    case 'copy-ffmpeg-mp4':
+      await copyFFmpegCommand(item, 'mp4', button);
+      break;
+    case 'copy-ffmpeg-mp4-subs':
+      await copyFFmpegCommand(item, 'mp4-subs', button);
+      break;
+    case 'copy-ffmpeg-extract-subs':
+      await copyFFmpegCommand(item, 'extract-subs', button);
+      break;
+    case 'download-merge':
+      await downloadWithNativeHost(item, button);
+      break;
+  }
+}
+
+/**
+ * Shorten URL for display
+ */
+function shortenUrl(url) {
+  try {
+    const urlObj = new URL(url);
+    const path = urlObj.pathname;
+    const parts = path.split('/').filter(p => p);
+    if (parts.length > 3) {
+      return '.../' + parts.slice(-3).join('/');
+    }
+    return path;
+  } catch {
+    return url.length > 60 ? url.substring(0, 60) + '...' : url;
+  }
+}
+
+/**
+ * Create a media item element
+ */
+function createMediaItemElement(item, index) {
+  const div = document.createElement('div');
+  div.className = 'media-item';
+  
+  // Format timestamp
+  const timestamp = new Date(item.timestamp).toLocaleTimeString();
+  
+  // Create badges
+  let badges = `<span class="media-badge ${item.mediaType.toLowerCase()}">${item.mediaType}</span>`;
+  if (item.isPossiblyProtected) {
+    badges += `<span class="media-badge protected">🔒 Protected?</span>`;
+  }
+  
+  // Create action buttons based on media type
+  let actions = '';
+  
+  if (item.isSubtitle) {
+    // Subtitle file - show download and copy options
+    actions += `
+      <button class="btn btn-success btn-small" data-index="${index}" data-action="download">
+        ⬇️ Download Subtitle
+      </button>
+      <button class="btn btn-secondary btn-small" data-index="${index}" data-action="copy-url">
+        🔗 Copy URL
+      </button>
+    `;
+  } else if (item.isHLS) {
+    // HLS - show FFmpeg command options including subtitle extraction
+    actions += `
+      <button class="btn btn-success btn-small" data-index="${index}" data-action="download-merge">
+        🚀 Download & Merge
+      </button>
+      <button class="btn btn-primary btn-small" data-index="${index}" data-action="copy-ffmpeg-mp4">
+        📋 FFmpeg (MP4)
+      </button>
+      <button class="btn btn-primary btn-small" data-index="${index}" data-action="copy-ffmpeg-mp4-subs">
+        📋 FFmpeg (MP4+Subs)
+      </button>
+      <button class="btn btn-primary btn-small" data-index="${index}" data-action="copy-ffmpeg-extract-subs">
+        📋 Extract Subs
+      </button>
+      <button class="btn btn-primary btn-small" data-index="${index}" data-action="copy-ffmpeg-mp3">
+        📋 FFmpeg (MP3)
+      </button>
+    `;
+  } else if (item.isDirectDownloadable) {
+    // Direct downloadable - show download and FFmpeg options
+    actions += `
+      <button class="btn btn-success btn-small" data-index="${index}" data-action="download">
+        ⬇️ Download File
+      </button>
+      <button class="btn btn-success btn-small" data-index="${index}" data-action="download-merge">
+        🚀 Download & Merge
+      </button>
+      <button class="btn btn-primary btn-small" data-index="${index}" data-action="copy-ffmpeg-convert">
+        📋 Copy FFmpeg (Convert)
+      </button>
+    `;
+  } else {
+    // Other - show generic options
+    actions += `
+      <button class="btn btn-primary btn-small" data-index="${index}" data-action="copy-ffmpeg-copy">
+        📋 Copy FFmpeg
+      </button>
+    `;
+  }
+  
+  // Conditionally show copy URL button
+  // Hide for HLS or if Referer header exists (likely needs headers to access)
+  const needsHeaders = item.isHLS || item.isPossiblyProtected || 
+                       (item.headers && (item.headers['Referer'] || item.headers['referer']));
+  
+  if (!needsHeaders || item.isSubtitle) {
+    // Show Copy URL for direct files or subtitles
+    actions += `
+      <button class="btn btn-secondary btn-small" data-index="${index}" data-action="copy-url">
+        🔗 Copy URL
+      </button>
+    `;
+  }
+  
+  // Create info message for HLS
+  let infoMessage = '';
+  if (item.isHLS) {
+    infoMessage = `
+      <div class="media-info">
+        💡 This is an HLS playlist (.m3u8). Use FFmpeg to download and convert it. Direct browser download won't work.
+      </div>
+    `;
+  } else if (item.isSubtitle) {
+    infoMessage = `
+      <div class="media-info" style="background: #e8f5e9; border-left-color: #4caf50;">
+        💡 <strong>How to use this subtitle:</strong>
+        <br>1. Download the subtitle file (click ⬇️ above)
+        <br>2. Save it with the same name as your video (e.g., <code>video.mp4</code> + <code>video.vtt</code>)
+        <br>3. Place both files in the same folder
+        <br>4. Open video in VLC/MPC-HC - subtitles load automatically!
+        <br>Or use <strong>📋 MP4+Subs</strong> button on the video to embed subtitles directly.
+      </div>
+    `;
+  }
+  
+  div.innerHTML = `
+    <div class="media-item-header">
+      ${badges}
+    </div>
+    <div class="media-url" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>
+    <div class="media-timestamp">Detected at ${timestamp}</div>
+    <div class="media-actions">
+      ${actions}
+    </div>
+    ${infoMessage}
+  `;
+  
+  // Add event listeners to buttons
+  div.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', handleMediaAction);
+  });
+  
+  return div;
+}
+
+/**
+ * Handle media action button clicks
+ */
+async function handleMediaAction(event) {
+  const button = event.currentTarget;
+  const index = parseInt(button.dataset.index);
+  const action = button.dataset.action;
+  
+  // Get media item
+  const result = await chrome.storage.session.get('detectedMedia');
+  const detectedMedia = result.detectedMedia || {};
+  const mediaItems = detectedMedia[currentTabId.toString()] || [];
+  const item = mediaItems[index];
+  
+  if (!item) {
+    showError('Media item not found');
+    return;
+  }
+  
+  // Handle action
+  switch (action) {
+    case 'copy-url':
+      await copyToClipboard(item.url, button);
+      break;
+    case 'copy-ffmpeg-mp3':
+      await copyFFmpegCommand(item, 'mp3', button);
+      break;
+    case 'copy-ffmpeg-mp4':
+      await copyFFmpegCommand(item, 'mp4', button);
+      break;
+    case 'copy-ffmpeg-mp4-subs':
+      await copyFFmpegCommand(item, 'mp4-subs', button);
+      break;
+    case 'copy-ffmpeg-extract-subs':
+      await copyFFmpegCommand(item, 'extract-subs', button);
+      break;
+    case 'copy-ffmpeg-copy':
+      await copyFFmpegCommand(item, 'copy', button);
+      break;
+    case 'copy-ffmpeg-convert':
+      await copyFFmpegCommand(item, 'convert', button);
+      break;
+    case 'download':
+      await downloadFile(item, button);
+      break;
+    case 'download-merge':
+      await downloadWithNativeHost(item, button);
+      break;
+  }
+}
+
+/**
+ * Generate FFmpeg command
+ */
+function generateFFmpegCommand(item, mode) {
+  const url = item.url;
+  const headers = item.headers || {};
+  
+  // Build header arguments
+  let headerArgs = '';
+  
+  // Add User-Agent
+  if (headers['User-Agent']) {
+    headerArgs += `-user_agent "${headers['User-Agent']}" `;
+  }
+  
+  // Add Referer (this is critical for many CDNs)
+  if (headers['Referer']) {
+    headerArgs += `-headers "Referer: ${headers['Referer']}" `;
+  } else if (headers['referer']) {
+    headerArgs += `-headers "Referer: ${headers['referer']}" `;
+  } else if (item.pageUrl) {
+    // Fallback to page URL as referer
+    headerArgs += `-headers "Referer: ${item.pageUrl}" `;
+  }
+  
+  // Add Origin if present
+  if (headers['Origin']) {
+    // If we already have headers arg, append with \r\n
+    if (headerArgs.includes('-headers')) {
+      headerArgs = headerArgs.replace('-headers "', `-headers "Origin: ${headers['Origin']}\\r\\n`);
+    } else {
+      headerArgs += `-headers "Origin: ${headers['Origin']}" `;
+    }
+  }
+  
+  // Build FFmpeg command based on mode
+  let command = '';
+  
+  switch (mode) {
+    case 'mp3':
+      // Convert to MP3
+      command = `ffmpeg ${headerArgs}-i "${url}" -vn -acodec libmp3lame -b:a 192k "output.mp3"`;
+      break;
+      
+    case 'mp4':
+      // Save as MP4 (copy codec)
+      command = `ffmpeg ${headerArgs}-i "${url}" -c copy "output.mp4"`;
+      break;
+      
+    case 'mp4-subs':
+      // Save as MP4 with embedded subtitles
+      command = `ffmpeg ${headerArgs}-i "${url}" -c copy -c:s mov_text "output.mp4"`;
+      break;
+      
+    case 'copy':
+      // Copy streams without re-encoding
+      const ext = item.mediaType === 'HLS' ? 'mp4' : getFileExtension(url);
+      command = `ffmpeg ${headerArgs}-i "${url}" -c copy "output.${ext}"`;
+      break;
+      
+    case 'extract-subs':
+      // Extract subtitles to separate file
+      command = `ffmpeg ${headerArgs}-i "${url}" -map 0:s:0 "output.srt"`;
+      break;
+      
+    case 'convert':
+      // Convert audio from video file to MP3
+      command = `ffmpeg ${headerArgs}-i "${url}" -vn -acodec libmp3lame -b:a 192k "output.mp3"`;
+      break;
+  }
+  
+  return command;
+}
+
+/**
+ * Copy FFmpeg command to clipboard
+ */
+async function copyFFmpegCommand(item, mode, button) {
+  const command = generateFFmpegCommand(item, mode);
+  const commandWithPrefix = `PS .\> ${command}`;
+  
+  // Show command preview with monospace font
+  showCommandPreview(commandWithPrefix);
+  
+  await copyToClipboard(commandWithPrefix, button);
+}
+
+/**
+ * Show command preview in monospace
+ */
+function showCommandPreview(command) {
+  const preview = document.createElement('div');
+  preview.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #1e1e1e;
+    color: #00ff00;
+    padding: 20px;
+    border-radius: 8px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 11px;
+    z-index: 10000;
+    max-width: 90%;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    word-wrap: break-word;
+    white-space: pre-wrap;
+  `;
+  preview.textContent = command;
+  document.body.appendChild(preview);
+  
+  setTimeout(() => {
+    preview.remove();
+  }, 2000);
+}
+
+/**
+ * Download file directly
+ */
+async function downloadFile(item, button) {
+  try {
+    // Show loading state
+    const originalText = button.textContent;
+    button.textContent = '⏳ Downloading...';
+    button.disabled = true;
+    
+    // Generate filename
+    const filename = generateFilename(item.url, item.mediaType);
+    
+    // Start download
+    await chrome.downloads.download({
+      url: item.url,
+      filename: filename,
+      saveAs: true
+    });
+    
+    // Show success
+    button.textContent = '✅ Started';
+    setTimeout(() => {
+      button.textContent = originalText;
+      button.disabled = false;
+    }, 2000);
+  } catch (error) {
+    console.error('Download error:', error);
+    button.textContent = '❌ Failed';
+    button.disabled = false;
+    setTimeout(() => {
+      button.textContent = '⬇️ Download File';
+    }, 2000);
+  }
+}
+
+/**
+ * Download using native messaging host (Python + FFmpeg)
+ */
+async function downloadWithNativeHost(item, button) {
+  try {
+    // Show loading state
+    const originalText = button.textContent;
+    button.textContent = '🔌 Starting...';
+    button.disabled = true;
+    
+    // Generate output filename
+    const timestamp = Date.now();
+    const ext = item.mediaType === 'HLS' ? 'mp4' : getFileExtension(item.url).toLowerCase();
+    const outputFilename = `download_${timestamp}.${ext}`;
+    
+    // Get downloads folder path from user
+    const downloadsPath = await getDownloadsPath();
+    if (!downloadsPath) {
+      throw new Error('Download cancelled by user');
+    }
+    
+    const outputPath = `${downloadsPath}\\${outputFilename}`;
+    
+    // Send download request to background service worker
+    const response = await chrome.runtime.sendMessage({
+      action: 'startDownload',
+      data: {
+        url: item.url,
+        outputPath: outputPath,
+        headers: item.headers || {},
+        mediaType: item.mediaType
+      }
+    });
+    
+    if (response.success) {
+      button.textContent = '✅ Download Started!';
+      showInfo('Download started! Check notifications for progress.\n\nYou can close this popup - download continues in background.');
+      
+      setTimeout(() => {
+        button.textContent = originalText;
+        button.disabled = false;
+      }, 3000);
+    } else {
+      throw new Error(response.error || 'Failed to start download');
+    }
+    
+  } catch (error) {
+    console.error('Download error:', error);
+    button.textContent = '❌ Failed';
+    showError(error.message);
+    setTimeout(() => {
+      button.textContent = '🚀 Download & Merge';
+      button.disabled = false;
+    }, 3000);
+  }
+}
+
+/**
+ * Get downloads path from user
+ */
+async function getDownloadsPath() {
+  // Prompt user for downloads folder
+  const defaultPath = 'C:\\Users\\' + (await getUserName()) + '\\Downloads';
+  const path = prompt('Enter download folder path:', defaultPath);
+  return path;
+}
+
+/**
+ * Get current Windows username
+ */
+async function getUserName() {
+  // Try to get from environment or use default
+  return 'User'; // Fallback - user will edit the path
+}
+
+/**
+ * Copy text to clipboard
+ */
+async function copyToClipboard(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+    
+    // Show success feedback
+    const originalText = button.textContent;
+    button.textContent = '✅ Copied!';
+    setTimeout(() => {
+      button.textContent = originalText;
+    }, 2000);
+  } catch (error) {
+    console.error('Copy error:', error);
+    showError('Failed to copy to clipboard');
+  }
+}
+
+/**
+ * Test if URL is accessible without headers (returns false if 403)
+ */
+async function testUrlAccessibility(url) {
+  try {
+    const response = await fetch(url, {
+      method: 'HEAD',
+      mode: 'no-cors' // Avoid CORS issues
+    });
+    // no-cors mode doesn't give us status, so we assume accessible
+    // If it fails, catch block handles it
+    return true;
+  } catch (error) {
+    console.log('URL test failed (may need headers):', url);
+    return false;
+  }
+}
+
+/**
+ * Handle clear all button
+ */
+async function handleClearAll() {
+  try {
+    const result = await chrome.storage.session.get('detectedMedia');
+    const detectedMedia = result.detectedMedia || {};
+    
+    // Clear media for current tab
+    delete detectedMedia[currentTabId.toString()];
+    
+    await chrome.storage.session.set({ detectedMedia });
+    
+    // Refresh display
+    await loadDetectedMedia();
+  } catch (error) {
+    console.error('Error clearing media:', error);
+    showError('Failed to clear media');
+  }
+}
+
+/**
+ * Show error message
+ */
+function showError(message) {
+  console.error(message);
+  // Create a simple notification div
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    background: #f44336;
+    color: white;
+    padding: 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  `;
+  notification.textContent = message;
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.remove();
+  }, 5000);
+}
+
+/**
+ * Show info message
+ */
+function showInfo(message) {
+  console.log(message);
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    background: #4caf50;
+    color: white;
+    padding: 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    white-space: pre-line;
+  `;
+  notification.textContent = message;
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.remove();
+  }, 5000);
+}
+
+/**
+ * Generate filename from URL
+ */
+function generateFilename(url, mediaType) {
+  try {
+    const urlObj = new URL(url);
+    let filename = urlObj.pathname.split('/').pop();
+    
+    // If no filename in URL, generate one
+    if (!filename || filename.length < 3) {
+      const ext = mediaType.toLowerCase();
+      const timestamp = Date.now();
+      filename = `media_${timestamp}.${ext}`;
+    }
+    
+    return filename;
+  } catch (error) {
+    // Fallback filename
+    const ext = mediaType.toLowerCase();
+    return `media_${Date.now()}.${ext}`;
+  }
+}
+
+/**
+ * Get file extension from URL
+ */
+function getFileExtension(url) {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    const parts = pathname.split('.');
+    if (parts.length > 1) {
+      return parts[parts.length - 1].toLowerCase();
+    }
+  } catch (error) {
+    // ignore
+  }
+  return 'mp4'; // default
+}
+
+/**
+ * Escape HTML to prevent XSS
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
+ * Truncate text
+ */
+function truncate(text, maxLength) {
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + '...';
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', init);
