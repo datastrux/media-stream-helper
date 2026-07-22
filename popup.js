@@ -267,10 +267,14 @@ function formatElapsedTime(ms) {
  */
 async function loadDetectedMedia() {
   try {
+    console.log('[Popup] Loading media for tab:', currentTabId);
     const result = await chrome.storage.session.get('detectedMedia');
     const detectedMedia = result.detectedMedia || {};
+    console.log('[Popup] All detected media:', detectedMedia);
+    console.log('[Popup] Tab IDs available:', Object.keys(detectedMedia));
     
     const mediaItems = detectedMedia[currentTabId.toString()] || [];
+    console.log('[Popup] Media items for this tab:', mediaItems.length, mediaItems);
     
     displayMediaItems(mediaItems);
   } catch (error) {
@@ -283,6 +287,8 @@ async function loadDetectedMedia() {
  * Display media items in the UI
  */
 function displayMediaItems(mediaItems) {
+  console.log('[Popup displayMediaItems] Total items:', mediaItems.length);
+  
   // Clear previous content
   mediaListEl.innerHTML = '';
   // Filter and group items
@@ -300,10 +306,14 @@ function displayMediaItems(mediaItems) {
     }
   });
   
+  console.log('[Popup displayMediaItems] Playlists:', playlists.length, 'Direct:', directMedia.length, 'Segments:', segments.length);
+  
   // Group playlists by base path (same video, different qualities)
   const groupedPlaylists = groupPlaylistsByVideo(playlists);
+  console.log('[Popup displayMediaItems] Grouped playlists:', Object.keys(groupedPlaylists).length, groupedPlaylists);
   
   const visibleItems = [...Object.values(groupedPlaylists), ...directMedia];
+  console.log('[Popup displayMediaItems] Visible items:', visibleItems.length);
   
   if (visibleItems.length === 0 && !showIndividualSegments) {
     // Show message about hidden segments
