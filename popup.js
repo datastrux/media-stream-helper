@@ -89,15 +89,14 @@ async function displayActiveDownloads() {
     const downloads = response.downloads;
     const downloadIds = Object.keys(downloads);
     
-    // Filter active/recent downloads
-    const activeDownloads = downloadIds
-      .map(id => ({ id, ...downloads[id] }))
-      .filter(d => d.status === 'starting' || d.status === 'downloading' || 
-                   (d.status === 'complete' && Date.now() - d.timestamp < 60000)); // Show completed for 1 minute
-    
-    if (activeDownloads.length === 0) {
+    if (downloadIds.length === 0) {
       return;
     }
+    
+    // Show all downloads, sorted by timestamp (newest first)
+    const allDownloads = downloadIds
+      .map(id => ({ id, ...downloads[id] }))
+      .sort((a, b) => b.timestamp - a.timestamp);
     
     // Create download status section
     const statusSection = document.createElement('div');
@@ -108,30 +107,133 @@ async function displayActiveDownloads() {
       padding: 12px;
       margin: 10px 0;
       border-radius: 4px;
+      max-height: 400px;
+      overflow-y: auto;
     `;
     
-    const title = document.createElement('div');
-    title.style.cssText = 'font-weight: bold; font-size: 13px; margin-bottom: 8px; color: #1976d2;';
-    title.textContent = `📥 Active Downloads (${activeDownloads.length})`;
-    statusSection.appendChild(title);
+    // Header with clear all button
+    const header = document.createElement('div');
+    header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;';
     
-    activeDownloads.forEach(download => {
+    const title = document.createElement('div');
+    title.style.cssText = 'font-weight: bold; font-size: 13px; color: #1976d2;';
+    title.textContent = `📥 Downloads (${allDownloads.length})`;
+    
+    const clearAllBtn = document.createElement('button');
+    clearAllBtn.textContent = '🗑️ Clear All';
+    clearAllBtn.style.cssText = 'font-size: 10px; padding: 3px 8px; cursor: pointer; border: 1px solid #ccc; border-radius: 3px; background: white;';
+    clearAllBtn.onclick = async () => {
+      await chrome.runtime.sendMessage({ action: 'clearAllDownloads' });
+      location.reload();
+    };
+    
+    header.appendChild(title);
+    header.appendChild(clearAllBtn);
+    statusSection.appendChild(header);
+    
+    allDownloads.forEach(download => {
       const item = document.createElement('div');
-      item.style.cssText = 'font-size: 11px; padding: 6px; background: white; border-radius: 3px; margin-bottom: 4px;';
+      item.style.cssText = 'font-size: 11px; padding: 8px; background: white; border-radius: 3px; margin-bottom: 6px; border: 1px solid #ddd;';
       
       const statusIcon = {
         'starting': '🔌',
         'downloading': '⏳',
+        'retrying': '🔄',
+        'waiting': '⏳',
+        'resuming': '▶️',
         'complete': '✅',
         'failed': '❌'
       }[download.status] || '❓';
       
-      const statusText = download.status.toUpperCase();
+      // Calculate elapsed time
+      const elapsed = Date.now() - download.timestamp;
+      const elapsedText = formatElapsedTime(elapsed);
       
-      item.innerHTML = `
-        <div style="font-weight: 600;">${statusIcon} ${statusText}</div>
-        <div style="color: #666; margin-top: 2px;">${download.mediaType} - ${new Date(download.timestamp).toLocaleTimeString()}</div>
+      // Status color
+      const statusColor = {
+        'complete': '#4caf50',
+        'failed': '#f44336',
+        'retrying': '#ff9800',
+        'waiting': '#ff9800'
+      }[download.status] || '#2196f3';
+      
+      let statusHtml = `
+        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 4px;">
+          <div style="font-weight: 600; color: ${statusColor};">${statusIcon} ${download.status.toUpperCase()}</div>
+          <div style="font-size: 10px; color: #999;">${elapsedText}</div>
+        </div>
+        <div style="color: #666; font-size: 10px; margin-bottom: 2px;">${download.mediaType}</div>
+        <div style="color: #999; font-size: 9px;">${new Date(download.timestamp).toLocaleString()}</div>
       `;
+      
+      // Show progress message if available
+      if (download.message) {
+        statusHtml += `<div style="color: #666; font-size: 10px; margin-top: 4px; font-style: italic;">${escapeHtml(download.message)}</div>`;
+      }
+      
+      // Show error message if failed
+      if (download.status === 'failed' && download.error) {
+        const shortError = download.error.length > 100 ? download.error.substring(0, 100) + '...' : download.error;
+        statusHtml += `<div style="color: #f44336; font-size: 10px; margin-top: 4px; background: #ffebee; padding: 4px; border-radius: 2px;">${escapeHtml(shortError)}</div>`;
+      }
+      
+      // Show file info if complete
+      if (download.status === 'complete' && download.fileSize) {
+        const sizeKB = Math.round(download.fileSize / 1024);
+        const sizeMB = (download.fileSize / 1024 / 1024).toFixed(2);
+        const sizeText = download.fileSize > 1024 * 1024 ? `${sizeMB} MB` : `${sizeKB} KB`;
+        statusHtml += `<div style="color: #4caf50; font-size: 10px; margin-top: 4px;">📁 ${sizeText}</div>`;
+      }
+      
+      item.innerHTML = statusHtml;
+      
+      // Add action buttons for failed downloads
+      if (download.status === 'failed') {
+        const btnContainer = document.createElement('div');
+        btnContainer.style.cssText = 'margin-top: 6px; display: flex; gap: 4px;';
+        
+        const retryBtn = document.createElement('button');
+        retryBtn.textContent = '🔄 Retry';
+        retryBtn.style.cssText = 'font-size: 9px; padding: 3px 6px; cursor: pointer; border: 1px solid #2196f3; border-radius: 3px; background: #e3f2fd; color: #2196f3;';
+        retryBtn.onclick = async () => {
+          await chrome.runtime.sendMessage({ 
+            action: 'retryDownload', 
+            downloadId: download.id,
+            url: download.url,
+            outputPath: download.outputPath
+          });
+          location.reload();
+        };
+        
+        const clearBtn = document.createElement('button');
+        clearBtn.textContent = '✕ Clear';
+        clearBtn.style.cssText = 'font-size: 9px; padding: 3px 6px; cursor: pointer; border: 1px solid #ccc; border-radius: 3px; background: white;';
+        clearBtn.onclick = async () => {
+          await chrome.runtime.sendMessage({ action: 'clearDownload', downloadId: download.id });
+          location.reload();
+        };
+        
+        btnContainer.appendChild(retryBtn);
+        btnContainer.appendChild(clearBtn);
+        item.appendChild(btnContainer);
+      }
+      
+      // Add clear button for completed downloads
+      if (download.status === 'complete') {
+        const btnContainer = document.createElement('div');
+        btnContainer.style.cssText = 'margin-top: 6px;';
+        
+        const clearBtn = document.createElement('button');
+        clearBtn.textContent = '✓ Clear';
+        clearBtn.style.cssText = 'font-size: 9px; padding: 3px 6px; cursor: pointer; border: 1px solid #4caf50; border-radius: 3px; background: #e8f5e9; color: #4caf50;';
+        clearBtn.onclick = async () => {
+          await chrome.runtime.sendMessage({ action: 'clearDownload', downloadId: download.id });
+          location.reload();
+        };
+        
+        btnContainer.appendChild(clearBtn);
+        item.appendChild(btnContainer);
+      }
       
       statusSection.appendChild(item);
     });
@@ -143,6 +245,21 @@ async function displayActiveDownloads() {
   } catch (error) {
     console.error('Error displaying downloads:', error);
   }
+}
+
+/**
+ * Format elapsed time
+ */
+function formatElapsedTime(ms) {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (days > 0) return `${days}d ${hours % 24}h ago`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m ago`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s ago`;
+  return `${seconds}s ago`;
 }
 
 /**

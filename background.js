@@ -276,6 +276,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
+  
+  if (message.action === 'clearDownload') {
+    clearDownload(message.downloadId)
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+  
+  if (message.action === 'clearAllDownloads') {
+    clearAllDownloads()
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+  
+  if (message.action === 'retryDownload') {
+    retryDownload(message.downloadId, message.url, message.outputPath)
+      .then(result => sendResponse({ success: true, downloadId: result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 });
 
 /**
@@ -492,7 +513,12 @@ async function updateDownloadStatus(downloadId, updates) {
     const result = await chrome.storage.local.get('activeDownloads');
     const downloads = result.activeDownloads || {};
     if (downloads[downloadId]) {
-      downloads[downloadId] = { ...downloads[downloadId], ...updates };
+      // Update with timestamp for the update
+      downloads[downloadId] = { 
+        ...downloads[downloadId], 
+        ...updates,
+        lastUpdate: Date.now()
+      };
       await chrome.storage.local.set({ activeDownloads: downloads });
     }
   } catch (error) {
@@ -524,5 +550,63 @@ async function getActiveDownloads() {
   } catch (error) {
     console.error('Error getting active downloads:', error);
     return {};
+  }
+}
+
+/**
+ * Clear a specific download from history
+ */
+async function clearDownload(downloadId) {
+  try {
+    const result = await chrome.storage.local.get('activeDownloads');
+    const downloads = result.activeDownloads || {};
+    delete downloads[downloadId];
+    await chrome.storage.local.set({ activeDownloads: downloads });
+  } catch (error) {
+    console.error('Error clearing download:', error);
+    throw error;
+  }
+}
+
+/**
+ * Clear all downloads from history
+ */
+async function clearAllDownloads() {
+  try {
+    await chrome.storage.local.set({ activeDownloads: {} });
+  } catch (error) {
+    console.error('Error clearing all downloads:', error);
+    throw error;
+  }
+}
+
+/**
+ * Retry a failed download
+ */
+async function retryDownload(oldDownloadId, url, outputPath) {
+  try {
+    // Get the old download info for headers and media type
+    const downloads = await getActiveDownloads();
+    const oldDownload = downloads[oldDownloadId];
+    
+    if (!oldDownload) {
+      throw new Error('Download not found');
+    }
+    
+    // Clear the old download entry
+    await clearDownload(oldDownloadId);
+    
+    // Start a new download with the same parameters
+    const downloadData = {
+      url: url || oldDownload.url,
+      outputPath: outputPath || oldDownload.outputPath,
+      headers: oldDownload.headers || {},
+      mediaType: oldDownload.mediaType || 'unknown'
+    };
+    
+    return await handleDownloadRequest(downloadData);
+  } catch (error) {
+    console.error('Error retrying download:', error);
+    throw error;
   }
 }
