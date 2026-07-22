@@ -289,6 +289,15 @@ async function loadDetectedMedia() {
 function displayMediaItems(mediaItems) {
   console.log('[Popup displayMediaItems] Total items:', mediaItems.length);
   
+  // DEBUG: Log first few items to see their properties
+  if (mediaItems.length > 0) {
+    console.log('[DEBUG] First item:', mediaItems[0]);
+    console.log('[DEBUG] First item isHLS:', mediaItems[0].isHLS);
+    console.log('[DEBUG] First item isSegment:', mediaItems[0].isSegment);
+    console.log('[DEBUG] First item mediaType:', mediaItems[0].mediaType);
+    console.log('[DEBUG] showIndividualSegments:', showIndividualSegments);
+  }
+  
   // Clear previous content
   mediaListEl.innerHTML = '';
   // Filter and group items
@@ -352,13 +361,13 @@ function displayMediaItems(mediaItems) {
   
   // Create grouped playlist elements
   Object.entries(groupedPlaylists).forEach(([groupKey, group]) => {
-    const groupEl = createGroupedPlaylistElement(group);
+    const groupEl = createGroupedPlaylistElement(group, mediaItems);
     mediaListEl.appendChild(groupEl);
   });
   
   // Create direct media elements
   directMedia.forEach((item, index) => {
-    const itemEl = createMediaItemElement(item, mediaItems.indexOf(item));
+    const itemEl = createMediaItemElement(item, mediaItems.indexOf(item), mediaItems);
     mediaListEl.appendChild(itemEl);
   });
   
@@ -370,7 +379,7 @@ function displayMediaItems(mediaItems) {
     mediaListEl.appendChild(segmentsHeader);
     
     segments.forEach((item, index) => {
-      const itemEl = createMediaItemElement(item, mediaItems.indexOf(item));
+      const itemEl = createMediaItemElement(item, mediaItems.indexOf(item), mediaItems);
       mediaListEl.appendChild(itemEl);
     });
   }
@@ -437,7 +446,7 @@ function groupPlaylistsByVideo(playlists) {
 /**
  * Create a grouped playlist element with quality options
  */
-function createGroupedPlaylistElement(group) {
+function createGroupedPlaylistElement(group, allItems = []) {
   const div = document.createElement('div');
   div.className = 'media-item media-group';
   
@@ -462,10 +471,17 @@ function createGroupedPlaylistElement(group) {
     return getQuality(b.url) - getQuality(a.url);
   });
   
+  // Check if this video has a matching subtitle
+  const primaryItem = qualityPlaylists[0] || masterPlaylist;
+  const hasSubtitle = findMatchingSubtitle(primaryItem, allItems);
+  
   // Create badges
   let badges = `<span class="media-badge hls">HLS Video</span>`;
   if (group.isPossiblyProtected) {
     badges += `<span class="media-badge protected">🔒 Protected?</span>`;
+  }
+  if (hasSubtitle) {
+    badges += `<span class="media-badge subtitle-available" style="background: #4caf50; color: white;">📝 Subtitle Available</span>`;
   }
   
   // Build quality buttons
@@ -605,19 +621,53 @@ function shortenUrl(url) {
 }
 
 /**
+ * Find matching subtitle for a video
+ * @param {Object} videoItem - The video media item
+ * @param {Array} allItems - All media items from the current tab
+ * @returns {Object|null} - Matching subtitle item or null
+ */
+function findMatchingSubtitle(videoItem, allItems) {
+  if (!videoItem || videoItem.isSubtitle) return null;
+  
+  // Find all subtitle files
+  const subtitles = allItems.filter(item => item.isSubtitle);
+  if (subtitles.length === 0) return null;
+  
+  // Try to match by URL similarity (same base path)
+  const videoUrl = new URL(videoItem.url);
+  const videoBasePath = videoUrl.pathname.split('/').slice(0, -1).join('/');
+  
+  // Look for subtitle with same base path
+  const matchingSubtitle = subtitles.find(sub => {
+    const subUrl = new URL(sub.url);
+    const subBasePath = subUrl.pathname.split('/').slice(0, -1).join('/');
+    return videoBasePath === subBasePath;
+  });
+  
+  // If found, return it; otherwise return first subtitle (likely the right one)
+  return matchingSubtitle || (subtitles.length > 0 ? subtitles[0] : null);
+}
+
+/**
  * Create a media item element
  */
-function createMediaItemElement(item, index) {
+function createMediaItemElement(item, index, allItems = []) {
   const div = document.createElement('div');
   div.className = 'media-item';
   
   // Format timestamp
   const timestamp = new Date(item.timestamp).toLocaleTimeString();
   
+  // Check if this video has a matching subtitle
+  const hasSubtitle = !item.isSubtitle && findMatchingSubtitle(item, allItems);
+  
   // Create badges
   let badges = `<span class="media-badge ${item.mediaType.toLowerCase()}">${item.mediaType}</span>`;
   if (item.isPossiblyProtected) {
     badges += `<span class="media-badge protected">🔒 Protected?</span>`;
+  }
+  if (hasSubtitle) {
+    badges += `<span class="media-badge subtitle-available" style="background: #4caf50; color: white;">📝 Subtitle Available</span>`;
   }
   
   // Create action buttons based on media type
@@ -943,33 +993,61 @@ async function downloadWithNativeHost(item, button) {
     button.textContent = '🔌 Starting...';
     button.disabled = true;
     
-    // Generate output filename
-    const timestamp = Date.now();
-    const ext = item.mediaType === 'HLS' ? 'mp4' : getFileExtension(item.url).toLowerCase();
-    const outputFilename = `download_${timestamp}.${ext}`;
-    
     // Get downloads folder path from user
     const downloadsPath = await getDownloadsPath();
     if (!downloadsPath) {
       throw new Error('Download cancelled by user');
     }
     
-    const outputPath = `${downloadsPath}\\${outputFilename}`;
+    // Generate base filename (without extension)
+    const timestamp = Date.now();
+    const baseFilename = `download_${timestamp}`;
+    
+    // Determine video extension and path
+    const videoExt = item.mediaType === 'HLS' ? 'mp4' : getFileExtension(item.url).toLowerCase();
+    const videoOutputPath = `${downloadsPath}\\${baseFilename}.${videoExt}`;
+    
+    // Check for matching subtitle
+    const result = await chrome.storage.session.get('detectedMedia');
+    const detectedMedia = result.detectedMedia || {};
+    const allItems = detectedMedia[currentTabId.toString()] || [];
+    const matchingSubtitle = findMatchingSubtitle(item, allItems);
     
     // Send download request to background service worker
     const response = await chrome.runtime.sendMessage({
       action: 'startDownload',
       data: {
         url: item.url,
-        outputPath: outputPath,
+        outputPath: videoOutputPath,
         headers: item.headers || {},
         mediaType: item.mediaType
       }
     });
     
     if (response.success) {
-      button.textContent = '✅ Download Started!';
-      showInfo('Download started! Check notifications for progress.\n\nYou can close this popup - download continues in background.');
+      let message = 'Video download started! Check notifications for progress.';
+      
+      // If there's a matching subtitle, download it too
+      if (matchingSubtitle) {
+        const subExt = getFileExtension(matchingSubtitle.url).toLowerCase();
+        const subOutputPath = `${downloadsPath}\\${baseFilename}.${subExt}`;
+        
+        // Download subtitle using browser's download API (subtitles are simple files)
+        try {
+          await chrome.downloads.download({
+            url: matchingSubtitle.url,
+            filename: `${baseFilename}.${subExt}`,
+            saveAs: false
+          });
+          message = `Video + Subtitle download started!\n\nBoth files will be named: ${baseFilename}\n\nCheck notifications for progress.`;
+        } catch (subError) {
+          console.error('Subtitle download error:', subError);
+          message += '\n\nNote: Subtitle download failed - you may need to download it separately.';
+        }
+      }
+      
+      button.textContent = matchingSubtitle ? '✅ Video + Sub Started!' : '✅ Download Started!';
+      showInfo(message + '\n\nYou can close this popup - download continues in background.');
       
       setTimeout(() => {
         button.textContent = originalText;
