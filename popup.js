@@ -536,6 +536,11 @@ function createGroupedPlaylistElement(group, allItems = []) {
       <button class="btn btn-primary btn-small" data-action="copy-ffmpeg-mp3">
         📋 FFmpeg (MP3)
       </button>
+      <button class="btn btn-secondary btn-small" data-action="locate-on-page" 
+              style="background: #9c27b0; color: white; border-color: #9c27b0;" 
+              title="Highlight this video on the webpage">
+        📍 Locate on Page
+      </button>
     </div>
     
     <div class="media-info">
@@ -598,6 +603,9 @@ async function handleGroupAction(button, item, group) {
       break;
     case 'download-merge':
       await downloadWithNativeHost(item, button);
+      break;
+    case 'locate-on-page':
+      await locateVideoOnPage(item, button);
       break;
   }
 }
@@ -737,6 +745,17 @@ function createMediaItemElement(item, index, allItems = []) {
     `;
   }
   
+  // Add "Locate on page" button for videos (not for segments or subtitles)
+  if (!item.isSegment && !item.isSubtitle) {
+    actions += `
+      <button class="btn btn-secondary btn-small" data-index="${index}" data-action="locate-on-page" 
+              style="background: #9c27b0; color: white; border-color: #9c27b0;" 
+              title="Highlight this video on the webpage">
+        📍 Locate on Page
+      </button>
+    `;
+  }
+  
   // Create info message for HLS
   let infoMessage = '';
   if (item.isHLS) {
@@ -825,6 +844,9 @@ async function handleMediaAction(event) {
       break;
     case 'download-merge':
       await downloadWithNativeHost(item, button);
+      break;
+    case 'locate-on-page':
+      await locateVideoOnPage(item, button);
       break;
   }
 }
@@ -998,9 +1020,17 @@ async function downloadWithNativeHost(item, button) {
       throw new Error('Download cancelled by user');
     }
     
-    // Generate base filename (without extension)
-    const timestamp = Date.now();
-    const baseFilename = `download_${timestamp}`;
+    // Generate smart default filename and ask user to customize
+    const defaultFilename = await generateSmartFilename(item);
+    const customFilename = prompt('Enter filename (without extension):', defaultFilename);
+    if (!customFilename) {
+      button.textContent = originalText;
+      button.disabled = false;
+      return; // User cancelled
+    }
+    
+    // Sanitize filename
+    const baseFilename = sanitizeFilename(customFilename);
     
     // Determine video extension and path
     const videoExt = item.mediaType === 'HLS' ? 'mp4' : getFileExtension(item.url).toLowerCase();
@@ -1062,6 +1092,93 @@ async function downloadWithNativeHost(item, button) {
     showError(error.message);
     setTimeout(() => {
       button.textContent = '🚀 Download & Merge';
+      button.disabled = false;
+    }, 3000);
+  }
+}
+
+/**
+ * Generate smart filename from page title, URL, or timestamp
+ */
+async function generateSmartFilename(item) {
+  try {
+    // Get current tab info
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs.length > 0) {
+      const tab = tabs[0];
+      
+      // Try to extract meaningful name from page title
+      if (tab.title && tab.title !== 'Unknown') {
+        const title = tab.title
+          .replace(/[\\/:*?"<>|]/g, '') // Remove invalid chars
+          .substring(0, 50) // Limit length
+          .trim();
+        if (title) return title;
+      }
+      
+      // Try to extract from URL
+      if (tab.url) {
+        const urlMatch = tab.url.match(/\/([^\/]+?)(?:\.html?)?$/);
+        if (urlMatch && urlMatch[1]) {
+          return urlMatch[1].replace(/[\\/:*?"<>|]/g, '').substring(0, 50);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error generating smart filename:', error);
+  }
+  
+  // Fallback to timestamp
+  return `download_${Date.now()}`;
+}
+
+/**
+ * Sanitize filename - remove invalid characters
+ */
+function sanitizeFilename(filename) {
+  return filename
+    .replace(/[\\/:*?"<>|]/g, '_') // Replace invalid chars with underscore
+    .replace(/\s+/g, '_') // Replace spaces with underscore
+    .replace(/_+/g, '_') // Collapse multiple underscores
+    .replace(/^_|_$/g, '') // Trim underscores from start/end
+    .substring(0, 200); // Limit total length
+}
+
+/**
+ * Locate and highlight video on the current page
+ */
+async function locateVideoOnPage(item, button) {
+  try {
+    const originalText = button.textContent;
+    button.textContent = '🔍 Locating...';
+    button.disabled = true;
+    
+    // Send message to content script
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs.length === 0) {
+      throw new Error('No active tab found');
+    }
+    
+    const response = await chrome.tabs.sendMessage(tabs[0].id, {
+      action: 'locateVideo',
+      url: item.url
+    });
+    
+    if (response.success) {
+      button.textContent = '✅ Found!';
+      setTimeout(() => {
+        button.textContent = originalText;
+        button.disabled = false;
+      }, 2000);
+    } else {
+      throw new Error('Failed to locate video');
+    }
+  } catch (error) {
+    console.error('Error locating video:', error);
+    button.textContent = '❌ Not found';
+    showError('Could not locate video on page. The video may be in an iframe or loaded dynamically.');
+    setTimeout(() => {
+      button.textContent = '📍 Locate on Page';
       button.disabled = false;
     }, 3000);
   }
