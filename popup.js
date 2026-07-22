@@ -503,8 +503,7 @@ function createGroupedPlaylistElement(group, allItems = []) {
   
   const qualityButtonsHtml = qualityButtons.join('');
   
-  // Use best quality or master as primary
-  const primaryItem = qualityPlaylists[0] || masterPlaylist;
+  // Use best quality or master as primary (primaryItem already declared above)
   const primaryIndex = group.items.indexOf(primaryItem);
   
   div.innerHTML = `
