@@ -39,7 +39,7 @@ const PROTECTION_INDICATORS = [
 ];
 
 // Maximum media items to store per tab
-const MAX_ITEMS_PER_TAB = 50;
+const MAX_ITEMS_PER_TAB = 200; // Increased to handle many TS segments without losing HLS playlists
 
 /**
  * Check if a URL contains a media extension
