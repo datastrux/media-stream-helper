@@ -50,7 +50,11 @@ Optional Python-based native host for automatic downloading:
 - Automatic segment concatenation
 - Real-time progress updates via notifications (New in v1.3.0!)
 - Downloads continue even when popup is closed (New in v1.3.0!)
+- **🔄 Automatic retry on network interruption** (New in v1.5.0!)
+- **📥 Seamless resume after connection loss** (New in v1.5.0!)
+- Intelligent exponential backoff for failed connections
 - No manual FFmpeg commands needed
+- See [DOWNLOAD_RESUME.md](DOWNLOAD_RESUME.md) for details on automatic resume
 
 ### Direct Download
 For direct media files (MP4, MP3, etc.), provides a one-click download button.

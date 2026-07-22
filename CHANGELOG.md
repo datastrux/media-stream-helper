@@ -1,3 +1,52 @@
+# Changelog
+
+## Version 1.5.0 - Automatic Download Resume (2026-07-22)
+
+### 🎯 Major Features
+
+#### Automatic Download Resume with Network Interruption Handling
+- **🔄 Automatic Retry** - Downloads automatically resume when network connection is lost
+- **📊 Exponential Backoff** - Smart retry delays: 2s → 4s → 8s → 16s → 32s
+- **🔌 FFmpeg Reconnection** - Built-in reconnection for HLS streams
+- **💾 State Persistence** - Download state saved for crash recovery
+- **🧠 Smart Error Detection** - Distinguishes network errors from permanent failures
+- **🔔 Enhanced Notifications** - Real-time retry status and attempt counters
+- **⚙️ Configurable Retries** - Default 5 attempts, customizable per download
+
+#### Technical Improvements
+- Network error detection with pattern matching
+- Download state saved to temporary files
+- Manual resume capability for failed downloads
+- FFmpeg timeout and reconnection flags for HLS
+- Non-retryable error filtering (403, 404, DRM)
+- Progress notifications for retry attempts
+
+### 📝 Files Modified
+- `native-host/media_downloader.py` - Added retry logic, state persistence, network error detection
+- `background.js` - Enhanced progress notifications for retry states
+- `README.md` - Updated with automatic resume feature
+- `DOWNLOAD_RESUME.md` - New comprehensive documentation (see this file for details)
+
+### 🔧 New Capabilities
+- Automatic recovery from temporary network outages
+- Downloads complete successfully even with unstable connections
+- Failed downloads can be manually resumed
+- Clear user feedback during retry attempts
+- Persistent state across process crashes
+
+### 🐛 Bug Fixes
+- Downloads no longer fail permanently on temporary network issues
+- FFmpeg reconnection enabled for streaming content
+- Better error messages distinguishing network vs. permanent failures
+
+---
+
+## Version 1.4.0 - Closed Caption Support
+
+See VERSION_1.2.0.md and previous changelog entries...
+
+---
+
 # Version 1.1.0 - Release Notes
 
 ## What's New

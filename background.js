@@ -349,10 +349,44 @@ async function handleDownloadRequest(downloadData) {
  */
 async function handleNativeHostMessage(downloadId, message) {
   if (message.type === 'progress') {
+    const status = message.status || 'downloading';
+    
     // Update download status
     await updateDownloadStatus(downloadId, {
-      status: message.status || 'downloading'
+      status: status,
+      message: message.message
     });
+    
+    // Show notifications for specific status changes
+    if (status === 'retrying') {
+      // Network error, retrying
+      chrome.notifications.create(downloadId + '_retry', {
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: '🔄 Retrying Download',
+        message: message.message || `Retrying... (attempt ${message.attempt}/${message.max_attempts})`,
+        priority: 1
+      });
+    } else if (status === 'waiting') {
+      // Waiting before retry
+      chrome.notifications.create(downloadId + '_wait', {
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: '⏳ Network Error',
+        message: message.message || `Retrying in ${message.delay}s...`,
+        priority: 1
+      });
+    } else if (status === 'resuming') {
+      // Resuming a previous download
+      chrome.notifications.create(downloadId + '_resume', {
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: '▶️ Resuming Download',
+        message: message.message || 'Resuming previous download...',
+        priority: 1
+      });
+    }
+    
   } else if (message.type === 'result') {
     // Download complete
     const port = activeDownloads.get(downloadId);
@@ -375,7 +409,7 @@ async function handleNativeHostMessage(downloadId, message) {
       chrome.notifications.create({
         type: 'basic',
         iconUrl: 'icons/icon128.png',
-        title: 'Download Complete!',
+        title: '✅ Download Complete!',
         message: `Downloaded ${sizeKB} KB\n${message.output_path}`,
         priority: 1
       });
@@ -386,11 +420,14 @@ async function handleNativeHostMessage(downloadId, message) {
         error: message.message
       });
       
+      // Determine if this was after retries
+      const attemptsMsg = message.attempts ? ` (after ${message.attempts} attempts)` : '';
+      
       // Show error notification
       chrome.notifications.create({
         type: 'basic',
         iconUrl: 'icons/icon128.png',
-        title: 'Download Failed',
+        title: '❌ Download Failed' + attemptsMsg,
         message: message.message || 'Unknown error',
         priority: 2
       });
