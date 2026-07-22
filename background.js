@@ -46,11 +46,18 @@ const MAX_ITEMS_PER_TAB = 50;
  */
 function isMediaUrl(url) {
   const urlLower = url.toLowerCase();
-  return MEDIA_EXTENSIONS.some(ext => {
+  const result = MEDIA_EXTENSIONS.some(ext => {
     // Check if URL contains the extension in path (before query params)
     const urlPath = url.split('?')[0].toLowerCase();
     return urlPath.endsWith(ext) || urlPath.includes(ext + '?') || urlPath.includes(ext + '#');
   });
+  
+  // Debug logging for media detection
+  if (result) {
+    console.log('[isMediaUrl] MATCH:', url.substring(0, 150));
+  }
+  
+  return result;
 }
 
 /**
@@ -174,6 +181,9 @@ async function storeDetectedMedia(mediaItem) {
  */
 chrome.webRequest.onBeforeSendHeaders.addListener(
   async (details) => {
+    // Debug: Log all requests (remove after debugging)
+    console.log('[Media Detection] Request:', details.type, details.url.substring(0, 100));
+    
     // Only process main_frame and sub_frame requests, and media requests
     const relevantTypes = ['main_frame', 'sub_frame', 'xmlhttprequest', 'media', 'other'];
     if (!relevantTypes.includes(details.type)) {
@@ -189,6 +199,8 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
     if (!isMediaUrl(details.url)) {
       return;
     }
+    
+    console.log('[Media Detection] MEDIA FOUND:', details.url);
     
     // Skip chrome:// and extension URLs
     if (details.url.startsWith('chrome://') || details.url.startsWith('chrome-extension://')) {
@@ -225,6 +237,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
     };
     
     // Store the detected media
+    console.log('[Media Detection] Storing media item:', mediaItem.mediaType, mediaItem.url.substring(0, 100));
     await storeDetectedMedia(mediaItem);
   },
   { urls: ["<all_urls>"] },
@@ -249,6 +262,8 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 console.log('Media Stream Helper: Background service worker initialized');
+console.log('[Media Detection] Monitoring for media extensions:', MEDIA_EXTENSIONS);
+console.log('[Media Detection] webRequest listener registered');
 
 /**
  * DOWNLOAD MANAGER
