@@ -240,6 +240,14 @@ def download_with_ffmpeg(url, output_path, headers=None, progress_callback=None,
         # Output file
         cmd.append(output_path)
         
+        # Log the command for debugging
+        cmd_str = ' '.join([f'"{arg}"' if ' ' in str(arg) else str(arg) for arg in cmd])
+        if progress_callback:
+            progress_callback({
+                'status': 'starting',
+                'message': f'FFmpeg command: {cmd_str[:200]}...'
+            })
+        
         # Send progress update
         if progress_callback:
             progress_callback({'status': 'downloading', 'message': 'Starting download...'})
@@ -252,8 +260,12 @@ def download_with_ffmpeg(url, output_path, headers=None, progress_callback=None,
             universal_newlines=True
         )
         
+        # Collect all stderr output for both progress and error reporting
+        stderr_lines = []
+        
         # Read stderr for progress (FFmpeg outputs to stderr)
         for line in process.stderr:
+            stderr_lines.append(line)
             # Parse FFmpeg progress lines
             if progress_callback and ('time=' in line or 'frame=' in line):
                 progress_callback({
@@ -273,17 +285,22 @@ def download_with_ffmpeg(url, output_path, headers=None, progress_callback=None,
                 'file_size': file_size
             }
         else:
-            # Collect stderr output for error analysis
-            stderr_output = ''
-            try:
-                stderr_output = process.stderr.read() if process.stderr else 'Unknown error'
-            except:
-                stderr_output = 'Unknown error'
+            # Use collected stderr output for error message (last 20 lines)
+            if stderr_lines:
+                stderr_output = ''.join(stderr_lines[-20:])
+            else:
+                stderr_output = 'No error output available (process may not have started)'
             
-            error_message = f'FFmpeg error (exit code {process.returncode}): {stderr_output}'
+            # Create detailed error message
+            error_message = f'FFmpeg failed (exit code {process.returncode}):\n{stderr_output}'
+            
+            # Log full command for debugging
+            cmd_str = ' '.join([f'"{arg}"' if ' ' in str(arg) else str(arg) for arg in cmd])
+            
             return {
                 'success': False,
                 'message': error_message,
+                'command': cmd_str,
                 'is_network_error': is_network_error(error_message)
             }
     
