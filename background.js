@@ -279,7 +279,7 @@ const activeDownloads = new Map();
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'startDownload') {
-    handleDownloadRequest(message.data)
+    handleDownloadRequest(message.data, sender.tab?.id)
       .then(result => sendResponse({ success: true, downloadId: result }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true; // Keep channel open for async response
@@ -317,7 +317,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 /**
  * Start a download using native messaging host
  */
-async function handleDownloadRequest(downloadData) {
+async function handleDownloadRequest(downloadData, tabId) {
   const downloadId = `download_${Date.now()}`;
   
   try {
@@ -330,14 +330,20 @@ async function handleDownloadRequest(downloadData) {
       priority: 1
     });
     
-    // Store download info
+    // Store download info (including tabId for content script updates)
     await storeDownloadInfo(downloadId, {
       url: downloadData.url,
       status: 'starting',
       mediaType: downloadData.mediaType,
       outputPath: downloadData.outputPath,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      tabId: tabId
     });
+    
+    // Update content script if tabId available
+    if (tabId) {
+      updateContentScriptStatus(tabId, downloadData.url, 'starting');
+    }
     
     // Connect to native messaging host
     const port = chrome.runtime.connectNative('com.media_stream_helper.downloader');
@@ -384,6 +390,11 @@ async function handleDownloadRequest(downloadData) {
  * Handle messages from native host
  */
 async function handleNativeHostMessage(downloadId, message) {
+  // Get download info to access URL and tabId
+  const downloadInfo = await getDownloadInfo(downloadId);
+  const tabId = downloadInfo?.tabId;
+  const url = downloadInfo?.url;
+  
   if (message.type === 'progress') {
     const status = message.status || 'downloading';
     
@@ -392,6 +403,11 @@ async function handleNativeHostMessage(downloadId, message) {
       status: status,
       message: message.message
     });
+    
+    // Update content script
+    if (tabId && url) {
+      updateContentScriptStatus(tabId, url, status);
+    }
     
     // Show notifications for specific status changes
     if (status === 'retrying') {
@@ -441,6 +457,11 @@ async function handleNativeHostMessage(downloadId, message) {
         fileSize: message.file_size
       });
       
+      // Update content script
+      if (tabId && url) {
+        updateContentScriptStatus(tabId, url, 'complete');
+      }
+      
       // Show success notification
       chrome.notifications.create({
         type: 'basic',
@@ -452,6 +473,14 @@ async function handleNativeHostMessage(downloadId, message) {
     } else {
       // Update storage
       await updateDownloadStatus(downloadId, {
+        status: 'failed',
+        error: message.message
+      });
+      
+      // Update content script
+      if (tabId && url) {
+        updateContentScriptStatus(tabId, url, 'failed');
+      }
         status: 'failed',
         error: message.message
       });
@@ -468,6 +497,24 @@ async function handleNativeHostMessage(downloadId, message) {
         priority: 2
       });
     }
+  }
+}
+
+/**
+ * Update content script with download status
+ */
+async function updateContentScriptStatus(tabId, url, status) {
+  if (!tabId || !url) return;
+  
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      action: 'updateVideoStatus',
+      url: url,
+      status: status
+    });
+  } catch (error) {
+    // Content script might not be loaded, ignore
+    console.log('[Background] Could not update content script:', error.message);
   }
 }
 

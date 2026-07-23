@@ -1159,9 +1159,11 @@ async function locateVideoOnPage(item, button) {
       throw new Error('No active tab found');
     }
     
+    // Locate and highlight the video (status will be 'idle' initially)
     const response = await chrome.tabs.sendMessage(tabs[0].id, {
       action: 'locateVideo',
-      url: item.url
+      url: item.url,
+      status: 'idle'
     });
     
     if (response.success) {
