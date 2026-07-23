@@ -123,8 +123,12 @@ async function displayActiveDownloads() {
     clearAllBtn.textContent = '🗑️ Clear All';
     clearAllBtn.style.cssText = 'font-size: 10px; padding: 3px 8px; cursor: pointer; border: 1px solid #ccc; border-radius: 3px; background: white;';
     clearAllBtn.onclick = async () => {
-      await chrome.runtime.sendMessage({ action: 'clearAllDownloads' });
-      location.reload();
+      if (confirm('Clear all download history?')) {
+        clearAllBtn.disabled = true;
+        clearAllBtn.textContent = 'Clearing...';
+        await chrome.runtime.sendMessage({ action: 'clearAllDownloads' });
+        location.reload();
+      }
     };
     
     header.appendChild(title);
@@ -196,21 +200,25 @@ async function displayActiveDownloads() {
         retryBtn.textContent = '🔄 Retry';
         retryBtn.style.cssText = 'font-size: 9px; padding: 3px 6px; cursor: pointer; border: 1px solid #2196f3; border-radius: 3px; background: #e3f2fd; color: #2196f3;';
         retryBtn.onclick = async () => {
+          retryBtn.disabled = true;
+          retryBtn.textContent = 'Retrying...';
           await chrome.runtime.sendMessage({ 
             action: 'retryDownload', 
             downloadId: download.id,
             url: download.url,
             outputPath: download.outputPath
           });
-          location.reload();
+          setTimeout(() => location.reload(), 100);
         };
         
         const clearBtn = document.createElement('button');
         clearBtn.textContent = '✕ Clear';
         clearBtn.style.cssText = 'font-size: 9px; padding: 3px 6px; cursor: pointer; border: 1px solid #ccc; border-radius: 3px; background: white;';
         clearBtn.onclick = async () => {
+          clearBtn.disabled = true;
+          clearBtn.textContent = '...';
           await chrome.runtime.sendMessage({ action: 'clearDownload', downloadId: download.id });
-          location.reload();
+          setTimeout(() => location.reload(), 100);
         };
         
         btnContainer.appendChild(retryBtn);
@@ -227,8 +235,10 @@ async function displayActiveDownloads() {
         clearBtn.textContent = '✓ Clear';
         clearBtn.style.cssText = 'font-size: 9px; padding: 3px 6px; cursor: pointer; border: 1px solid #4caf50; border-radius: 3px; background: #e8f5e9; color: #4caf50;';
         clearBtn.onclick = async () => {
+          clearBtn.disabled = true;
+          clearBtn.textContent = '...';
           await chrome.runtime.sendMessage({ action: 'clearDownload', downloadId: download.id });
-          location.reload();
+          setTimeout(() => location.reload(), 100);
         };
         
         btnContainer.appendChild(clearBtn);
