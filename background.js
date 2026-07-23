@@ -481,9 +481,6 @@ async function handleNativeHostMessage(downloadId, message) {
       if (tabId && url) {
         updateContentScriptStatus(tabId, url, 'failed');
       }
-        status: 'failed',
-        error: message.message
-      });
       
       // Determine if this was after retries
       const attemptsMsg = message.attempts ? ` (after ${message.attempts} attempts)` : '';
