@@ -296,6 +296,19 @@ header h1 {
   font-size: 11px;
 }
 
+.btn-large {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  flex-basis: 100%;
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+}
+
+.btn-large:hover {
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+  transform: translateY(-2px);
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;

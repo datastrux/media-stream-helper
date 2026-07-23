@@ -531,7 +531,7 @@ function createGroupedPlaylistElement(group, allItems = []) {
     </div>
     
     <div class="media-actions" data-selected-url="${escapeHtml(primaryItem.url)}">
-      <button class="btn btn-success btn-small" data-action="download-merge">
+      <button class="btn btn-success btn-large" data-action="download-merge">
         🚀 Download & Merge
       </button>
       <button class="btn btn-primary btn-small" data-action="copy-ffmpeg-mp4">
@@ -703,7 +703,7 @@ function createMediaItemElement(item, index, allItems = []) {
   } else if (item.isHLS) {
     // HLS - show FFmpeg command options including subtitle extraction
     actions += `
-      <button class="btn btn-success btn-small" data-index="${index}" data-action="download-merge">
+      <button class="btn btn-success btn-large" data-index="${index}" data-action="download-merge">
         🚀 Download & Merge
       </button>
       <button class="btn btn-primary btn-small" data-index="${index}" data-action="copy-ffmpeg-mp4">
@@ -725,7 +725,7 @@ function createMediaItemElement(item, index, allItems = []) {
       <button class="btn btn-success btn-small" data-index="${index}" data-action="download">
         ⬇️ Download File
       </button>
-      <button class="btn btn-success btn-small" data-index="${index}" data-action="download-merge">
+      <button class="btn btn-success btn-large" data-index="${index}" data-action="download-merge">
         🚀 Download & Merge
       </button>
       <button class="btn btn-primary btn-small" data-index="${index}" data-action="copy-ffmpeg-convert">
